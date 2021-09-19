@@ -1,6 +1,7 @@
 local vim = vim
 local api = vim.api
 local uv = vim.loop
+local cache = require'impatient.cache'
 
 local get_option, set_option = api.nvim_get_option, api.nvim_set_option
 local get_runtime_file = api.nvim_get_runtime_file
@@ -218,17 +219,15 @@ end
 
 function M.save_cache()
   if M.dirty then
-    log('Updating cache file: %s', M.path)
-    local f = io.open(M.path, 'w+b')
-    f:write(mpack.pack(M.cache))
-    f:flush()
+    log('Updating cache')
+    cache:__insert(mpack.pack(M.cache))
     M.dirty = false
   end
 end
 
+
 function M.clear_cache()
-  M.cache = {}
-  os.remove(M.path)
+  cache:__clear()
 end
 
 -- -- run a crude hash on vim._load_package to make sure it hasn't changed.
@@ -247,21 +246,7 @@ end
 -- end
 
 local function setup()
-  if uv.fs_stat(M.path) then
-    log('Loading cache file %s', M.path)
-    local f = io.open(M.path, 'rb')
-    local ok
-    ok, M.cache = pcall(function()
-      return mpack.unpack(f:read'*a')
-    end)
-
-    if not ok then
-      log('Corrupted cache file, %s. Invalidating...', M.path)
-      os.remove(M.path)
-      M.cache = {}
-    end
-    M.dirty = not ok
-  end
+  M.cache = mpack.unpack(cache:__get())
 
   local insert = table.insert
   local package = package
