@@ -14,7 +14,7 @@ local M = {
   profile = nil,
   dirty = false,
   path = vim.fn.stdpath('cache')..'/luacache',
-  log = {}
+  log = {},
 }
 
 if _G.use_cachepack == nil then
@@ -226,7 +226,7 @@ end
 function M.save_cache()
   if M.dirty then
     log('Updating cache')
-    cache:__insert(mpack.pack(M.cache))
+    cache:__insert(mpack.encode(M.cache))
     M.dirty = false
   end
 end
@@ -252,7 +252,12 @@ end
 -- end
 
 local function setup()
-  M.cache = mpack.unpack(cache:__get())
+  local decode_ok
+  decode_ok, M.cache = pcall(function() return mpack.decode(cache:__get()) end)
+  if not decode_ok then
+    print('Impatient: Error decoding cache')
+    M.cache = {}
+  end
 
   local insert = table.insert
   local package = package
