@@ -14,7 +14,7 @@ local M = {
   profile = nil,
   dirty = false,
   path = vim.fn.stdpath('cache')..'/luacache',
-  log = {}
+  log = {},
 }
 
 if _G.use_cachepack == nil then
