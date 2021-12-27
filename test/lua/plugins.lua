@@ -1,5 +1,6 @@
 
 local init = {
+  ['tami5/sqlite.lua']            = '3855b4ae',
   ['neovim/nvim-lspconfig']       = '2f026f21',
   ['nvim-lua/plenary.nvim']       = '06266e7b',
   ['nvim-lua/telescope.nvim']     = 'ac42f0c2',
@@ -35,6 +36,7 @@ for plugin, sha in pairs(init) do
   vim.opt.rtp:prepend(vim.loop.fs_realpath("scratch/"..plugin_dir))
 end
 
+require'sqlite.db'
 require'telescope'
 require'gitsigns'
 require'spellsitter'
