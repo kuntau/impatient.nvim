@@ -2,6 +2,45 @@ local M = {}
 
 local api, uv = vim.api, vim.loop
 
+local function add_module_to_plugin(plugins, m)
+  local plugin = m.module:match('([^.]+)')
+  if plugin then
+    if not plugins[plugin] then
+      plugins[plugin] = {
+        module = plugin,
+        resolve = 0,
+        load = 0,
+        exec = 0,
+        total = 0
+      }
+    end
+    local p = plugins[plugin]
+
+    p.resolve = p.resolve + m.resolve
+    p.load    = p.load + m.load
+    p.exec    = p.exec + m.exec
+    p.total   = p.total + m.total
+
+    if not p.loader then
+      p.loader = m.loader
+    elseif p.loader ~= m.loader then
+      p.loader = 'mixed'
+    end
+  end
+end
+
+local function post_process_results(module, m)
+  m.load = m.load or 0
+  m.resolve = m.resolve or 0
+  m.exec = m.exec or 0
+
+  m.resolve = m.resolve / 1000000
+  m.load    = m.load / 1000000
+  m.exec    = m.exec / 1000000
+  m.total   = m.resolve + m.load + m.exec
+  m.module  = module:gsub('/', '.')
+end
+
 function M.print_profile(profile)
   if not profile then
     print('Error: profiling was not enabled')
@@ -15,64 +54,26 @@ function M.print_profile(profile)
   local modules = {}
   local plugins = {}
 
-  for module, p in pairs(profile) do
-    p.load = p.load or 0
-    p.resolve = p.resolve or 0
-    p.exec = p.exec or 0
+  for module, m in pairs(profile) do
+    post_process_results(module, m)
+    add_module_to_plugin(plugins, m)
 
-    p.resolve = p.resolve / 1000000
-    p.load    = p.load / 1000000
-    p.exec    = p.exec / 1000000
-    p.total   = p.resolve + p.load + p.exec
-    p.module  = module:gsub('/', '.')
-
-    local plugin = p.module:match('([^.]+)')
-    if plugin then
-      if not plugins[plugin] then
-        plugins[plugin] = {
-          module = plugin,
-          resolve = 0,
-          load = 0,
-          exec = 0,
-          total = 0
-        }
-      end
-      local r = plugins[plugin]
-
-      r.resolve = r.resolve + p.resolve
-      r.load    = r.load + p.load
-      r.exec    = r.exec + p.exec
-      r.total   = r.total + p.total
-
-      if not r.loader then
-        r.loader = p.loader
-      elseif r.loader ~= p.loader then
-        r.loader = 'mixed'
-      end
-    end
-
-    total_resolve = total_resolve + p.resolve
-    total_load   = total_load + p.load
-    total_exec   = total_exec + p.exec
+    total_resolve = total_resolve + m.resolve
+    total_load    = total_load    + m.load
+    total_exec    = total_exec    + m.exec
 
     if #module > name_pad then
       name_pad = #module
     end
 
-    modules[#modules+1] = p
+    modules[#modules+1] = m
   end
+
+  plugins = vim.tbl_values(plugins)
 
   table.sort(modules, function(a, b)
-    return a.module > b.module
+    return a.total > b.total
   end)
-
-  do
-    local plugins_a = {}
-    for _, v in pairs(plugins) do
-      plugins_a[#plugins_a+1] = v
-    end
-    plugins = plugins_a
-  end
 
   table.sort(plugins, function(a, b)
     return a.total > b.total
@@ -84,32 +85,35 @@ function M.print_profile(profile)
   end
 
   local l = string.rep('─', name_pad+1)
+  local n = string.rep(' ', name_pad+1)
 
-  add('%s┬───────────┬────────────┬────────────┬────────────┬────────────┐', l)
-  add('%-'..name_pad..'s │ Loader    │ Resolve    │ Load       │ Exec       │ Total      │', '')
-  add('%s┼───────────┼────────────┼────────────┼────────────┼────────────┤', l)
-  add('%-'..name_pad..'s │           │ %8.4fms │ %8.4fms │ %8.4fms │ %8.4fms │', 'Total', total_resolve, total_load, total_exec, total_resolve+total_load+total_exec)
-  add('%s┴───────────┴────────────┴────────────┴────────────┴────────────┤', l)
-  add('%-'..name_pad..'s                                                                 │', 'By Plugin')
-  add('%s┬───────────┬────────────┬────────────┬────────────┬────────────┤', l)
-  for _, p in ipairs(plugins) do
-    add('%-'..name_pad..'s │ %9s │ %8.4fms │ %8.4fms │ %8.4fms │ %8.4fms │', p.module, p.loader, p.resolve, p.load, p.exec, p.total)
+  local f1 = '%-'..name_pad..'s │ %14s │ %8.4fms │ %8.4fms │ %8.4fms │ %8.4fms │'
+
+  local function render_table(rows, name)
+    add('%s─────────────────────────────────────────────────────────────────────┐', l)
+    add('%-'..name_pad..'s                                                                      │', name)
+    add('%s┬────────────────┬────────────┬────────────┬────────────┬────────────┤', l)
+    for _, p in ipairs(rows) do
+      add(f1, p.module, p.loader, p.resolve, p.load, p.exec, p.total)
+    end
+    add('%s┴────────────────┴────────────┴────────────┴────────────┴────────────┘', l)
   end
-  add('%s┴───────────┴────────────┴────────────┴────────────┴────────────┤', l)
-  add('%-'..name_pad..'s                                                                 │', 'By Module')
-  add('%s┬───────────┬────────────┬────────────┬────────────┬────────────┤', l)
-  for _, p in pairs(modules) do
-    add('%-'..name_pad..'s │ %9s │ %8.4fms │ %8.4fms │ %8.4fms │ %8.4fms │', p.module, p.loader, p.resolve, p.load, p.exec, p.total)
-  end
-  add('%s┴───────────┴────────────┴────────────┴────────────┴────────────┤', l)
+
+  add('%s┬────────────────┬────────────┬────────────┬────────────┬────────────┐', l)
+  add('%s│ Loader         │ Resolve    │ Load       │ Exec       │ Total      │', n)
+  add('%s┼────────────────┼────────────┼────────────┼────────────┼────────────┤', l)
+  add(f1, 'Total', '', total_resolve, total_load, total_exec, total_resolve+total_load+total_exec)
+  add('%s┴────────────────┴────────────┴────────────┴────────────┴────────────┘', l)
+  render_table(plugins, 'By Plugin')
+  render_table(modules, 'By Module')
 
   local bufnr = api.nvim_create_buf(false, false)
   api.nvim_buf_set_lines(bufnr, 0, 0, false, lines)
   api.nvim_buf_set_option(bufnr, 'buftype', 'nofile')
+  api.nvim_buf_set_option(bufnr, "modifiable", false)
   api.nvim_buf_set_name(bufnr, 'Impatient Profile Report')
   api.nvim_set_current_buf(bufnr)
 end
-
 
 M.mod_require = function(profile)
   local orig_require = require
@@ -119,32 +123,72 @@ M.mod_require = function(profile)
     local basename = mod:gsub('%.', '/')
 
     if profile[basename] ~= nil then
+      if not profile[basename].loader then
+        -- require before profiling was enabled
+        profile[basename].loader = 'NA'
+      end
       return orig_require(mod)
     end
 
     -- Only profile the first require
-    profile[basename] = {}
+    local pb = {}
+    profile[basename] = pb
 
     rp[#rp+1] = basename
     local ptr = #rp
 
     local s = uv.hrtime()
-    local ret = orig_require(mod)
+    local ok, ret = pcall(orig_require, mod)
 
-    profile[basename].exec = uv.hrtime() - s
+    pb.exec = uv.hrtime() - s - (pb.resolve or 0) - (pb.load or 0)
+
+    if not ok then
+      error(ret)
+    end
 
     -- Remove the execution time for dependent modules
     if #rp > ptr then
       for i = ptr + 1, #rp do
         local dep = rp[i]
         assert(basename ~= dep)
-        -- print(string.format('REMOVING %s from %s', dep, basename))
-        profile[basename].exec = profile[basename].exec - profile[dep].exec
+        local pd = profile[dep]
+        if pd.exec then
+          pb.exec = pb.exec - pd.exec
+        else
+          print(string.format(
+            'impatient: [error] dependency %s of %s does not have profile results. '..
+            'Results will be inaccurate', dep, basename))
+        end
       end
     end
-    assert(profile[basename].exec > 0)
+    assert(pb.exec > 0)
 
     return ret
+  end
+
+  -- Add profiling around all the loaders
+  local pl = package.loaders
+  for i = 1, #pl do
+    local l = pl[i]
+    pl[i] = function(mod)
+      local resolve_start = uv.hrtime()
+      local basename = mod:gsub('%.', '/')
+      local pb = profile[basename]
+      if pb and not pb.loader then
+        pb.loader = i == 1 and 'preloader' or '#'..i
+      end
+      local ok, ret = pcall(l, mod)
+      if pb.resolve_end then
+        pb.load = uv.hrtime() - pb.resolve_end
+        pb.resolve = pb.resolve_end - resolve_start
+      else
+        pb.load = uv.hrtime() - resolve_start
+      end
+      if not ok then
+        error(ret)
+      end
+      return l(mod)
+    end
   end
 end
 
